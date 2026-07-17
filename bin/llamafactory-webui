@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ -r "$SCRIPT_DIR/ui.sh" ]]; then
+  # Installed layout.
+  # shellcheck source=../lib/ui.sh
+  source "$SCRIPT_DIR/ui.sh"
+else
+  # Repository layout.
+  # shellcheck source=../lib/ui.sh
+  source "$SCRIPT_DIR/../lib/ui.sh"
+fi
+
+readonly CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/llamafactory-scripts/config"
+readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/llamafactory"
+readonly PID_FILE="$STATE_DIR/webui.pid"
+readonly LOG_FILE="$STATE_DIR/webui.log"
+
+INSTALL_MODE=''
+SOURCE_DIR=''
+ENV_PATH=''
+CONDA_ENV_NAME='llamafactory'
+CONDA_EXE=''
+
+usage() {
+  cat <<'EOF'
+用法：
+  llamafactory-webui start [--gpus all|none|0,1] [-- WebUI参数...]
+  llamafactory-webui stop
+  llamafactory-webui status
+  llamafactory-webui logs [-f]
+
+不指定 --gpus 时，交互终端会展示 GPU 信息并询问；非交互环境默认使用全部 GPU。
+EOF
+}
+
+load_config() {
+  local key value
+  [[ -r "$CONFIG_FILE" ]] || die "尚未安装或配置丢失，请先运行 install.sh：$CONFIG_FILE"
+  while IFS='=' read -r key value; do
+    case "$key" in
+      INSTALL_MODE) INSTALL_MODE=$value ;;
+      SOURCE_DIR) SOURCE_DIR=$value ;;
+      ENV_PATH) ENV_PATH=$value ;;
+      CONDA_ENV_NAME) CONDA_ENV_NAME=$value ;;
+      CONDA_EXE) CONDA_EXE=$value ;;
+    esac
+  done <"$CONFIG_FILE"
+  [[ -d "$SOURCE_DIR" ]] || die "LlamaFactory 源码目录不存在：$SOURCE_DIR"
+  [[ "$INSTALL_MODE" == conda || "$INSTALL_MODE" == venv ]] || die '安装配置中的 INSTALL_MODE 无效。'
+}
+
+pid_identity() {
+  local pid=$1 stat_line fields_after_name
+  [[ -r "/proc/$pid/stat" ]] || return 1
+  IFS= read -r stat_line <"/proc/$pid/stat" || return 1
+  fields_after_name=${stat_line##*) }
+  # starttime 是 /proc/<pid>/stat 的第 22 字段；进程名可能包含空格，需先移除前两字段。
+  awk '{print $20}' <<<"$fields_after_name"
+}
+
+read_running_pid() {
+  local pid saved_start current_start
+  [[ -r "$PID_FILE" ]] || return 1
+  read -r pid saved_start <"$PID_FILE" || return 1
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  current_start=$(pid_identity "$pid") || return 1
+  [[ "$current_start" == "$saved_start" ]] || return 1
+  printf '%s\n' "$pid"
+}
+
+show_gpus() {
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    warn '未检测到 nvidia-smi，将使用 CPU。'
+    return 1
+  fi
+  local rows
+  rows=$(nvidia-smi --query-gpu=index,name,driver_version,temperature.gpu,utilization.gpu,memory.used,memory.total \
+    --format=csv,noheader,nounits 2>/dev/null) || { warn 'nvidia-smi 查询失败，将使用 CPU。'; return 1; }
+  [[ -n "$rows" ]] || { warn '未检测到 NVIDIA GPU，将使用 CPU。'; return 1; }
+  printf '\n%-4s  %-30s  %-9s  %-6s  %-8s  %s\n' '编号' '型号' '驱动' '温度' '利用率' '显存 (MiB)'
+  while IFS=',' read -r index name driver temp util used total; do
+    index=${index//[[:space:]]/}
+    name=${name#${name%%[![:space:]]*}}
+    driver=${driver//[[:space:]]/}
+    temp=${temp//[[:space:]]/}
+    util=${util//[[:space:]]/}
+    used=${used//[[:space:]]/}
+    total=${total//[[:space:]]/}
+    printf '%-4s  %-30.30s  %-9s  %4s°C  %6s%%  %s / %s\n' "$index" "$name" "$driver" "$temp" "$util" "$used" "$total"
+  done <<<"$rows"
+  printf '\n'
+}
+
+available_gpu_indexes() {
+  nvidia-smi --query-gpu=index --format=csv,noheader,nounits 2>/dev/null | sed 's/[[:space:]]//g'
+}
+
+validate_gpu_selection() {
+  local selection=$1 item available
+  local -a selected_items
+  [[ "$selection" == none ]] && return 0
+  [[ "$selection" =~ ^[0-9]+(,[0-9]+)*$ ]] || return 1
+  available=$(available_gpu_indexes) || return 1
+  IFS=',' read -ra selected_items <<<"$selection"
+  for item in "${selected_items[@]}"; do
+    grep -Fxq "$item" <<<"$available" || return 1
+  done
+}
+
+choose_gpus() {
+  local requested=${1-} answer indexes
+  if ! show_gpus >&2; then
+    [[ -z "$requested" || "$requested" == all || "$requested" == none ]] || die "系统中没有可选的 NVIDIA GPU：$requested"
+    printf '%s' ''
+    return
+  fi
+  indexes=$(available_gpu_indexes | paste -sd, -)
+  if [[ -n "$requested" ]]; then
+    answer=$requested
+  elif [[ -t 0 ]]; then
+    answer=$(ask '选择 GPU（all、none 或逗号分隔编号）' all)
+  else
+    answer=all
+  fi
+  [[ "$answer" == all ]] && answer=$indexes
+  validate_gpu_selection "$answer" || die "GPU 选择无效：$answer"
+  [[ "$answer" == none ]] && answer=''
+  printf '%s' "$answer"
+}
+
+start_webui() {
+  local requested_gpus='' gpu_selection pid start_time
+  local -a webui_args=()
+  while (($#)); do
+    case "$1" in
+      --gpus)
+        (($# >= 2)) || die '--gpus 缺少参数。'
+        requested_gpus=$2
+        shift 2
+        ;;
+      --)
+        shift
+        webui_args+=("$@")
+        break
+        ;;
+      *) die "未知参数：$1（WebUI 参数请放在 -- 后）" ;;
+    esac
+  done
+  if pid=$(read_running_pid); then
+    die "WebUI 已在运行（PID $pid）。"
+  fi
+  rm -f -- "$PID_FILE"
+  mkdir -p "$STATE_DIR"
+  gpu_selection=$(choose_gpus "$requested_gpus")
+
+  step '启动 LlamaFactory WebUI'
+  if [[ "$INSTALL_MODE" == conda ]]; then
+    local conda_base conda_sh
+    [[ -x "$CONDA_EXE" ]] || die "Conda 不可执行：$CONDA_EXE"
+    conda_base=$("$CONDA_EXE" info --base)
+    conda_sh="$conda_base/etc/profile.d/conda.sh"
+    [[ -r "$conda_sh" ]] || die "找不到 Conda 初始化脚本：$conda_sh"
+    nohup bash -c 'source "$1"; conda activate "$2"; cd "$3"; shift 3; exec env "CUDA_VISIBLE_DEVICES=$1" llamafactory-cli webui "${@:2}"' \
+      _ "$conda_sh" "$CONDA_ENV_NAME" "$SOURCE_DIR" "$gpu_selection" "${webui_args[@]}" >>"$LOG_FILE" 2>&1 &
+  else
+    [[ -x "$ENV_PATH/bin/llamafactory-cli" ]] || die "venv 中找不到 llamafactory-cli：$ENV_PATH"
+    nohup bash -c 'source "$1/bin/activate"; cd "$2"; shift 2; exec env "CUDA_VISIBLE_DEVICES=$1" llamafactory-cli webui "${@:2}"' \
+      _ "$ENV_PATH" "$SOURCE_DIR" "$gpu_selection" "${webui_args[@]}" >>"$LOG_FILE" 2>&1 &
+  fi
+  pid=$!
+  sleep 2
+  kill -0 "$pid" 2>/dev/null || { error 'WebUI 启动失败，最近日志：'; tail -n 30 "$LOG_FILE" >&2; exit 1; }
+  start_time=$(pid_identity "$pid") || die '无法记录 WebUI 进程状态。'
+  printf '%s %s\n' "$pid" "$start_time" >"$PID_FILE"
+  success "WebUI 已启动（PID $pid，CUDA_VISIBLE_DEVICES=${gpu_selection:-<CPU>}）。"
+  info "日志：$LOG_FILE"
+}
+
+stop_webui() {
+  local pid attempt
+  if ! pid=$(read_running_pid); then
+    rm -f -- "$PID_FILE"
+    warn 'WebUI 未运行。'
+    return
+  fi
+  step "停止 LlamaFactory WebUI（PID $pid）"
+  kill -TERM "$pid"
+  for attempt in {1..20}; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    warn '进程未在 10 秒内退出，发送 KILL 信号。'
+    kill -KILL "$pid"
+  fi
+  rm -f -- "$PID_FILE"
+  success 'WebUI 已停止。'
+}
+
+status_webui() {
+  local pid
+  if pid=$(read_running_pid); then
+    success "WebUI 正在运行（PID $pid）。"
+  else
+    warn 'WebUI 未运行。'
+    return 1
+  fi
+}
+
+show_logs() {
+  [[ -e "$LOG_FILE" ]] || die "日志文件尚不存在：$LOG_FILE"
+  if [[ ${1-} == -f ]]; then
+    tail -f "$LOG_FILE"
+  else
+    [[ $# -eq 0 ]] || die 'logs 仅支持 -f 参数。'
+    tail -n 100 "$LOG_FILE"
+  fi
+}
+
+main() {
+  local command_name action
+  command_name=$(basename -- "$0")
+  case "$command_name" in
+    *-start) action=start ;;
+    *-stop) action=stop ;;
+    *) action=${1:-}; [[ $# -gt 0 ]] && shift ;;
+  esac
+  case "$action" in
+    help|-h|--help|'') usage; return 0 ;;
+  esac
+  load_config
+  case "$action" in
+    start) start_webui "$@" ;;
+    stop) stop_webui ;;
+    status) status_webui ;;
+    logs) show_logs "$@" ;;
+    *) usage; die "未知操作：$action" ;;
+  esac
+}
+
+main "$@"
