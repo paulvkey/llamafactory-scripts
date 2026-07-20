@@ -68,26 +68,19 @@ conda config --show pkgs_dirs
 
 ## 从 Conda base 发布公共命令
 
-管理员可使用 `install-shared-conda-command.sh` 将 CLI 包安装到 Conda base，并发布
+管理员可使用 `install-shared-cmd.sh` 将 CLI 包安装到 Conda base，并发布
 到 `/usr/local/bin`，让所有用户无需激活 Conda 即可执行。默认安装 `nvitop`，也可
 交互输入其他 Conda 包、channel、环境内命令名和公共命令名：
 
 ```bash
-chmod +x install-shared-conda-command.sh
-./install-shared-conda-command.sh
+chmod +x install-shared-cmd.sh
+./install-shared-cmd.sh
 ```
 
-脚本需要由具有 `sudo` 权限的普通管理员账号运行，不应直接使用 root。主要流程：
-
-1. 检测 Conda 并确定 base 环境。
-2. 交互选择包和命令，默认使用 `conda-forge::nvitop`。
-3. 使用 `conda install --name base` 安装。
-4. 经管理员确认后，为 Conda base 增加所有用户读取和执行权限。
-5. 在 `/usr/local/bin` 创建公共命令链接。
-6. 若公共命令已存在，确认后先创建带时间戳的备份再替换。
-
-该方案会让其他用户能够读取 Conda base 中的文件，但不会授予写权限。若 base 中
-包含不应公开的内容，请不要确认权限调整，应改用独立的公共环境。
+脚本需要由具有 `sudo` 权限的普通管理员账号运行，不应直接使用 root。该方案会让
+其他用户能够读取 Conda base 中的文件，但不会授予写权限。完整的交互参数、权限
+影响、其他命令示例、验证、恢复和故障排查请参阅
+[`docs/install-shared-cmd/README.md`](docs/install-shared-cmd/README.md)。
 
 ## WebUI 管理命令
 
