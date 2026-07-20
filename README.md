@@ -17,6 +17,7 @@
 ## 安装与卸载
 
 ```bash
+git clone https://ghfast.top/https://github.com/paulvkey/llamafactory-scripts.git
 chmod +x install.sh uninstall.sh
 ./install.sh
 ```
@@ -120,11 +121,11 @@ llamafactory-webui start --gpus 0 -- --help
 
 ## 默认路径
 
-| 内容 | 路径 |
-| --- | --- |
-| 源码与 venv/运行脚本 | `~/.local/share/llamafactory` |
-| 管理命令 | `~/.local/bin` |
-| 安装配置 | `~/.config/llamafactory-scripts/config` |
-| PID 与日志 | `~/.local/state/llamafactory` |
+| 内容                 | 路径                                    |
+| -------------------- | --------------------------------------- |
+| 源码与 venv/运行脚本 | `~/.local/share/llamafactory`           |
+| 管理命令             | `~/.local/bin`                          |
+| 安装配置             | `~/.config/llamafactory-scripts/config` |
+| PID 与日志           | `~/.local/state/llamafactory`           |
 
 可通过 `XDG_DATA_HOME`、`XDG_CONFIG_HOME` 和 `XDG_STATE_HOME` 覆盖相应的 XDG 路径。
