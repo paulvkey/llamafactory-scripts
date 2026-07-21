@@ -39,7 +39,7 @@ remove_managed_source() {
 }
 
 remove_managed_command() {
-  local path=$1 expected="$INSTALL_ROOT/runtime/llamafactory-webui"
+  local path=$1 expected=${2:-"$INSTALL_ROOT/runtime/llamafactory-webui"}
   if [[ -L "$path" && $(readlink -- "$path") == "$expected" ]]; then
     rm -f -- "$path"
   elif [[ -e "$path" || -L "$path" ]]; then
@@ -69,6 +69,7 @@ main() {
   remove_managed_command "$BIN_DIR/llamafactory-webui"
   remove_managed_command "$BIN_DIR/llamafactory-webui-start"
   remove_managed_command "$BIN_DIR/llamafactory-webui-stop"
+  remove_managed_command "$BIN_DIR/llamafactory-data-download" "$INSTALL_ROOT/runtime/llamafactory-data-download"
   remove_managed_source "$SOURCE_DIR"
   remove_managed_tree "$INSTALL_ROOT"
   remove_managed_tree "$CONFIG_DIR"

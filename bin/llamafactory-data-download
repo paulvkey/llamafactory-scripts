@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+SCRIPT_PATH=${BASH_SOURCE[0]}
+while [[ -L "$SCRIPT_PATH" ]]; do
+  LINK_DIR=$(cd -P -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
+  LINK_TARGET=$(readlink -- "$SCRIPT_PATH")
+  if [[ "$LINK_TARGET" == /* ]]; then
+    SCRIPT_PATH=$LINK_TARGET
+  else
+    SCRIPT_PATH="$LINK_DIR/$LINK_TARGET"
+  fi
+done
+SCRIPT_DIR=$(cd -P -- "$(dirname -- "$SCRIPT_PATH")" && pwd)
+readonly SCRIPT_PATH SCRIPT_DIR
+
+if [[ -r "$SCRIPT_DIR/ui.sh" ]]; then
+  # Installed layout.
+  # shellcheck source=../lib/ui.sh
+  source "$SCRIPT_DIR/ui.sh"
+  PYTHON_SCRIPT="$SCRIPT_DIR/hf-data-download.py"
+else
+  # Repository layout.
+  # shellcheck source=../lib/ui.sh
+  source "$SCRIPT_DIR/../lib/ui.sh"
+  PYTHON_SCRIPT="$SCRIPT_DIR/../hf-data-download.py"
+fi
+
+readonly CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/llamafactory-scripts/config"
+CONDA_ENV_NAME='llamafactory'
+CONDA_EXE=''
+
+load_config() {
+  local key value
+  [[ -r "$CONFIG_FILE" ]] || die "尚未安装或配置丢失，请先运行 install.sh：$CONFIG_FILE"
+  while IFS='=' read -r key value; do
+    case "$key" in
+      CONDA_ENV_NAME) CONDA_ENV_NAME=$value ;;
+      CONDA_EXE) CONDA_EXE=$value ;;
+    esac
+  done <"$CONFIG_FILE"
+  [[ -x "$CONDA_EXE" ]] || die "Conda 不可执行：$CONDA_EXE"
+  [[ -r "$PYTHON_SCRIPT" ]] || die "数据下载脚本不存在：$PYTHON_SCRIPT"
+}
+
+main() {
+  local conda_base conda_sh
+  load_config
+  conda_base=$("$CONDA_EXE" info --base)
+  conda_sh="$conda_base/etc/profile.d/conda.sh"
+  [[ -r "$conda_sh" ]] || die "找不到 Conda 初始化脚本：$conda_sh"
+
+  set +u
+  # shellcheck disable=SC1090
+  source "$conda_sh"
+  conda activate "$CONDA_ENV_NAME"
+  set -u
+  [[ -n ${CONDA_PREFIX:-} && -x "$CONDA_PREFIX/bin/python" ]] \
+    || die "Conda 环境激活失败：$CONDA_ENV_NAME"
+
+  exec "$CONDA_PREFIX/bin/python" "$PYTHON_SCRIPT" "$@"
+}
+
+main "$@"

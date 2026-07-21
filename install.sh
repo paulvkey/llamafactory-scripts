@@ -34,6 +34,7 @@ require_command() {
 installation_is_complete() {
   local key value config_mode='' config_source='' config_env='' config_conda=''
   local env_path expected_runtime="$RUNTIME_DIR/llamafactory-webui" command_path
+  local expected_downloader="$RUNTIME_DIR/llamafactory-data-download"
 
   [[ -r "$CONFIG_FILE" ]] || return 1
   while IFS='=' read -r key value; do
@@ -61,6 +62,9 @@ installation_is_complete() {
     "$BIN_DIR/llamafactory-webui-stop"; do
     [[ -L "$command_path" && $(readlink -- "$command_path") == "$expected_runtime" ]] || return 1
   done
+  [[ -x "$expected_downloader" && -r "$RUNTIME_DIR/hf-data-download.py" ]] || return 1
+  command_path="$BIN_DIR/llamafactory-data-download"
+  [[ -L "$command_path" && $(readlink -- "$command_path") == "$expected_downloader" ]] || return 1
 
   EXISTING_CONDA_EXE=$config_conda
 }
@@ -270,6 +274,13 @@ check_command_targets() {
       fi
     fi
   done
+  command_path="$BIN_DIR/llamafactory-data-download"
+  expected_target="$RUNTIME_DIR/llamafactory-data-download"
+  if [[ -e "$command_path" || -L "$command_path" ]]; then
+    if [[ ! -L "$command_path" || $(readlink -- "$command_path") != "$expected_target" ]]; then
+      die "拒绝覆盖不属于本脚本的文件：$command_path"
+    fi
+  fi
 }
 
 install_commands() {
@@ -277,9 +288,12 @@ install_commands() {
   check_command_targets
   install -m 0644 "$SCRIPT_DIR/lib/ui.sh" "$RUNTIME_DIR/ui.sh"
   install -m 0755 "$SCRIPT_DIR/bin/llamafactory-webui" "$RUNTIME_DIR/llamafactory-webui"
+  install -m 0755 "$SCRIPT_DIR/bin/llamafactory-data-download" "$RUNTIME_DIR/llamafactory-data-download"
+  install -m 0644 "$SCRIPT_DIR/hf-data-download.py" "$RUNTIME_DIR/hf-data-download.py"
   ln -sfn "$RUNTIME_DIR/llamafactory-webui" "$BIN_DIR/llamafactory-webui"
   ln -sfn "$RUNTIME_DIR/llamafactory-webui" "$BIN_DIR/llamafactory-webui-start"
   ln -sfn "$RUNTIME_DIR/llamafactory-webui" "$BIN_DIR/llamafactory-webui-stop"
+  ln -sfn "$RUNTIME_DIR/llamafactory-data-download" "$BIN_DIR/llamafactory-data-download"
 }
 
 main() {
@@ -358,6 +372,7 @@ main() {
   info "激活 Conda 环境：conda activate $CONDA_ENV_NAME"
   info '启动：llamafactory-webui start（或 llamafactory-webui-start）'
   info '停止：llamafactory-webui stop（或 llamafactory-webui-stop）'
+  info '下载数据集：llamafactory-data-download [repo_id]'
 }
 
 main "$@"

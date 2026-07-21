@@ -170,6 +170,28 @@ llamafactory-webui logs
 curl -I http://127.0.0.1:7860/
 ```
 
+## 下载 Hugging Face 数据集
+
+安装脚本会同时安装 `llamafactory-data-download` 命令。该命令会自动激活
+`llamafactory` Conda 环境，不要求当前终端提前执行 `conda activate`。
+
+```bash
+# 交互输入数据集 Repo ID
+llamafactory-data-download
+
+# 直接指定 Repo ID，保存到 ~/LlamaFactory/data/OpenR1-Math-220k
+llamafactory-data-download open-r1/OpenR1-Math-220k
+
+# 自定义 data 目录下的目录名
+llamafactory-data-download open-r1/OpenR1-Math-220k --name math_training
+
+# 查看帮助
+llamafactory-data-download --help
+```
+
+数据统一保存在 `~/LlamaFactory/data/<数据集目录名>`。重复执行命令时会检查远端
+更新并复用本地下载元数据。
+
 ## 默认路径
 
 | 内容                 | 路径                                    |
