@@ -113,6 +113,11 @@ llamafactory-webui status
 llamafactory-webui logs
 llamafactory-webui logs -f
 llamafactory-webui stop
+
+# 查看总帮助或子命令帮助
+llamafactory-webui --help
+llamafactory-webui help start
+llamafactory-webui start --help
 ```
 
 也可以使用直达命令：

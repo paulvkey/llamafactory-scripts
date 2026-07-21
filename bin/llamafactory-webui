@@ -25,14 +25,85 @@ CONDA_EXE=''
 
 usage() {
   cat <<'EOF'
+LlamaFactory WebUI 管理命令
+
 用法：
   llamafactory-webui start [--gpus all|none|0,1] [-- WebUI参数...]
   llamafactory-webui stop
   llamafactory-webui status
   llamafactory-webui logs [-f]
+  llamafactory-webui help [start|stop|status|logs]
 
-不指定 --gpus 时，交互终端会展示 GPU 信息并询问；非交互环境默认使用全部 GPU。
+操作：
+  start    后台启动 WebUI，自动激活 llamafactory Conda 环境
+  stop     停止由本命令启动的 WebUI
+  status   查看 WebUI 是否正在运行及其 PID
+  logs     显示最近 100 行日志；加 -f 持续跟踪
+  help     显示总帮助或指定操作的帮助
+
+帮助：
+  llamafactory-webui help start
+  llamafactory-webui start --help
+  llamafactory-webui --help
 EOF
+}
+
+show_help() {
+  local topic=${1-}
+  case "$topic" in
+    ''|help)
+      usage
+      ;;
+    start)
+      cat <<'EOF'
+用法：llamafactory-webui start [--gpus GPU] [-- WebUI参数...]
+
+后台启动 LlamaFactory WebUI。启动前会自动激活安装时创建的 llamafactory Conda 环境。
+
+选项：
+  --gpus all       使用所有 NVIDIA GPU（默认）
+  --gpus none      不向 WebUI 暴露 GPU，使用 CPU
+  --gpus 0         仅使用 GPU 0
+  --gpus 0,1       使用 GPU 0 和 GPU 1
+  -h, --help       显示此帮助
+
+未指定 --gpus 时，交互终端会显示 GPU 型号、驱动、温度、利用率和显存占用并询问；
+非交互环境默认使用全部 GPU。需要传递 WebUI 参数时，放在独立的 -- 后。
+
+示例：
+  llamafactory-webui start
+  llamafactory-webui start --gpus 0,1
+  llamafactory-webui start --gpus none
+  llamafactory-webui start --gpus 0 -- --help
+EOF
+      ;;
+    stop)
+      cat <<'EOF'
+用法：llamafactory-webui stop
+
+停止由本命令启动的 WebUI。默认发送 TERM 信号；10 秒后仍未退出则发送 KILL 信号。
+EOF
+      ;;
+    status)
+      cat <<'EOF'
+用法：llamafactory-webui status
+
+检查 PID 文件和进程启动时间，显示 WebUI 是否正在运行。
+EOF
+      ;;
+    logs)
+      cat <<EOF
+用法：llamafactory-webui logs [-f]
+
+不带参数时显示最近 100 行日志；-f 持续跟踪日志。
+日志文件：$LOG_FILE
+EOF
+      ;;
+    *)
+      usage
+      die "没有该帮助主题：$topic"
+      ;;
+  esac
 }
 
 load_config() {
@@ -145,6 +216,10 @@ start_webui() {
         webui_args+=("$@")
         break
         ;;
+      -h|--help)
+        show_help start
+        return
+        ;;
       *) die "未知参数：$1（WebUI 参数请放在 -- 后）" ;;
     esac
   done
@@ -222,8 +297,13 @@ main() {
     *) action=${1:-}; [[ $# -gt 0 ]] && shift ;;
   esac
   case "$action" in
-    help|-h|--help|'') usage; return 0 ;;
+    help) show_help "${1-}"; return 0 ;;
+    -h|--help|'') show_help; return 0 ;;
   esac
+  if [[ ${1-} == -h || ${1-} == --help ]]; then
+    show_help "$action"
+    return 0
+  fi
   load_config
   case "$action" in
     start) start_webui "$@" ;;
