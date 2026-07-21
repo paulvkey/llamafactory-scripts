@@ -15,6 +15,8 @@ readonly CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/llamafactory-scripts"
 readonly CONFIG_FILE="$CONFIG_DIR/config"
 readonly REPOSITORY_URL='https://github.com/hiyouga/LlamaFactory.git'
 
+EXISTING_CONDA_EXE=''
+
 trap 'error "安装失败（第 ${LINENO} 行）。请检查上方输出。"' ERR
 
 require_ubuntu() {
@@ -27,6 +29,40 @@ require_ubuntu() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "缺少命令：$1。请先让管理员安装它。"
+}
+
+installation_is_complete() {
+  local key value config_mode='' config_source='' config_env='' config_conda=''
+  local env_path expected_runtime="$RUNTIME_DIR/llamafactory-webui" command_path
+
+  [[ -r "$CONFIG_FILE" ]] || return 1
+  while IFS='=' read -r key value; do
+    case "$key" in
+      INSTALL_MODE) config_mode=$value ;;
+      SOURCE_DIR) config_source=$value ;;
+      CONDA_ENV_NAME) config_env=$value ;;
+      CONDA_EXE) config_conda=$value ;;
+    esac
+  done <"$CONFIG_FILE"
+
+  [[ "$config_mode" == conda ]] || return 1
+  [[ "$config_source" == "$SOURCE_DIR" && -d "$SOURCE_DIR/.git" ]] || return 1
+  [[ "$config_env" == "$CONDA_ENV_NAME" ]] || return 1
+  [[ -x "$config_conda" ]] || return 1
+
+  env_path=$("$config_conda" env list | awk -v name="$CONDA_ENV_NAME" '$1 == name { print $NF; exit }')
+  [[ -n "$env_path" && -x "$env_path/bin/python" && -x "$env_path/bin/llamafactory-cli" ]] || return 1
+  python_is_311 "$env_path/bin/python" || return 1
+
+  [[ -x "$expected_runtime" && -r "$RUNTIME_DIR/ui.sh" ]] || return 1
+  for command_path in \
+    "$BIN_DIR/llamafactory-webui" \
+    "$BIN_DIR/llamafactory-webui-start" \
+    "$BIN_DIR/llamafactory-webui-stop"; do
+    [[ -L "$command_path" && $(readlink -- "$command_path") == "$expected_runtime" ]] || return 1
+  done
+
+  EXISTING_CONDA_EXE=$config_conda
 }
 
 find_conda() {
@@ -247,14 +283,30 @@ install_commands() {
 }
 
 main() {
-  local conda_exe='' python_bin
+  local conda_exe='' python_bin update_existing=0
 
   step '检查 Ubuntu 用户环境'
   require_ubuntu
 
-  check_conda_setup
+  step '检查现有 LlamaFactory 安装'
+  if installation_is_complete; then
+    success "检测到完整安装：$SOURCE_DIR"
+    if ! confirm '是否更新 LlamaFactory 源码、依赖和管理脚本？' N; then
+      success '现有安装保持不变，已跳过全部安装步骤。'
+      return 0
+    fi
+    update_existing=1
+    conda_exe=$EXISTING_CONDA_EXE
+    info '已进入更新模式。'
+  else
+    info '未检测到完整安装，将继续安装或修复。'
+  fi
 
-  if ! confirm '是否使用 Conda 创建 llamafactory（Python 3.11）环境？' Y; then
+  if (( ! update_existing )); then
+    check_conda_setup
+  fi
+
+  if (( ! update_existing )) && ! confirm '是否使用 Conda 创建 llamafactory（Python 3.11）环境？' Y; then
     warn '已选择不使用 Conda；安装脚本不会创建 venv，后续 LlamaFactory 安装流程已全部跳过。'
     return 0
   fi
@@ -264,10 +316,12 @@ main() {
   check_command_targets
 
   step '准备 Conda 环境'
-  if ! conda_exe=$(find_conda); then
-    confirm '未找到 Conda，是否将 Miniconda 安装到 ~/.local/miniconda3？' Y || die '已取消：使用 Conda 需要先安装 Conda。'
-    require_command curl
-    conda_exe=$(install_miniconda)
+  if [[ -z "$conda_exe" ]]; then
+    if ! conda_exe=$(find_conda); then
+      confirm '未找到 Conda，是否将 Miniconda 安装到 ~/.local/miniconda3？' Y || die '已取消：使用 Conda 需要先安装 Conda。'
+      require_command curl
+      conda_exe=$(install_miniconda)
+    fi
   fi
   activate_conda_environment "$conda_exe" base
   if "$conda_exe" env list | awk -v name="$CONDA_ENV_NAME" '$1 == name { found=1 } END { exit !found }'; then

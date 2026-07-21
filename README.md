@@ -46,6 +46,11 @@ chmod +x install.sh uninstall.sh
 验证通过后，LlamaFactory 本体按照官方方式执行 `pip install -e .` 和
 `pip install -r requirements/metrics.txt`，不额外升级 pip。
 
+`install.sh` 可以重复运行。脚本会检查配置、源码、Conda 环境、Python 版本、
+`llamafactory-cli`、WebUI 运行脚本和命令链接；检测到完整安装时默认跳过全部步骤，
+仅询问是否更新。选择更新后才会拉取源码并刷新依赖和管理脚本；检测到安装不完整时
+则继续执行安装或修复流程。
+
 ```bash
 ./uninstall.sh
 ```
