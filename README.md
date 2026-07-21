@@ -132,9 +132,13 @@ llamafactory-webui start --gpus 0 -- --help
 
 | 内容                 | 路径                                    |
 | -------------------- | --------------------------------------- |
-| 源码与运行脚本      | `~/.local/share/llamafactory`           |
+| LlamaFactory 源码    | `~/LlamaFactory`                        |
+| WebUI 运行脚本       | `~/.local/share/llamafactory`           |
 | 管理命令             | `~/.local/bin`                          |
 | 安装配置             | `~/.config/llamafactory-scripts/config` |
 | PID 与日志           | `~/.local/state/llamafactory`           |
 
-可通过 `XDG_DATA_HOME`、`XDG_CONFIG_HOME` 和 `XDG_STATE_HOME` 覆盖相应的 XDG 路径。
+源码目录固定为 `~/LlamaFactory`。其他目录可通过 `XDG_DATA_HOME`、
+`XDG_CONFIG_HOME` 和 `XDG_STATE_HOME` 覆盖相应的 XDG 路径。
+如果检测到旧版本脚本创建的 `~/.local/share/llamafactory/source`，安装时会询问
+是否将它迁移到新的源码目录。

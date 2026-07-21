@@ -13,6 +13,7 @@ readonly CONFIG_FILE="$CONFIG_DIR/config"
 readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/llamafactory"
 
 INSTALL_MODE=''
+SOURCE_DIR="$HOME/LlamaFactory"
 CONDA_ENV_NAME='llamafactory'
 CONDA_EXE=''
 
@@ -22,10 +23,19 @@ load_config() {
   while IFS='=' read -r key value; do
     case "$key" in
       INSTALL_MODE) INSTALL_MODE=$value ;;
+      SOURCE_DIR) SOURCE_DIR=$value ;;
       CONDA_ENV_NAME) CONDA_ENV_NAME=$value ;;
       CONDA_EXE) CONDA_EXE=$value ;;
     esac
   done <"$CONFIG_FILE"
+}
+
+remove_managed_source() {
+  local path=$1
+  case "$path" in
+    "$HOME/LlamaFactory"|"$INSTALL_ROOT/source") rm -rf -- "$path" ;;
+    *) die "拒绝删除异常源码路径：$path" ;;
+  esac
 }
 
 remove_managed_command() {
@@ -59,6 +69,7 @@ main() {
   remove_managed_command "$BIN_DIR/llamafactory-webui"
   remove_managed_command "$BIN_DIR/llamafactory-webui-start"
   remove_managed_command "$BIN_DIR/llamafactory-webui-stop"
+  remove_managed_source "$SOURCE_DIR"
   remove_managed_tree "$INSTALL_ROOT"
   remove_managed_tree "$CONFIG_DIR"
   remove_managed_tree "$STATE_DIR"

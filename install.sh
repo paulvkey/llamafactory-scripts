@@ -8,7 +8,7 @@ source "$SCRIPT_DIR/lib/ui.sh"
 
 readonly CONDA_ENV_NAME='llamafactory'
 readonly INSTALL_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/llamafactory"
-readonly SOURCE_DIR="$INSTALL_ROOT/source"
+readonly SOURCE_DIR="$HOME/LlamaFactory"
 readonly RUNTIME_DIR="$INSTALL_ROOT/runtime"
 readonly BIN_DIR="$HOME/.local/bin"
 readonly CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/llamafactory-scripts"
@@ -194,6 +194,15 @@ create_llamafactory_conda_env() {
 }
 
 prepare_source() {
+  local legacy_source="$INSTALL_ROOT/source"
+  if [[ ! -e "$SOURCE_DIR" && -d "$legacy_source/.git" ]]; then
+    info "检测到旧源码目录：$legacy_source"
+    if confirm "是否迁移到 $SOURCE_DIR？" Y; then
+      mv -- "$legacy_source" "$SOURCE_DIR"
+      success "源码已迁移到：$SOURCE_DIR"
+    fi
+  fi
+
   if [[ -d "$SOURCE_DIR/.git" ]]; then
     info '检测到已有 LlamaFactory 源码，尝试快进更新。'
     git -C "$SOURCE_DIR" pull --ff-only
