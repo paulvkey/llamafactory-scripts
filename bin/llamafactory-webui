@@ -238,9 +238,6 @@ show_access_info() {
     info "服务器本机访问地址：http://127.0.0.1:$port/"
     if [[ -n ${SSH_CONNECTION:-} ]]; then
       server_name=$(hostname -f 2>/dev/null || hostname)
-      info '当前是 SSH 会话；你自己电脑浏览器中的 127.0.0.1 并不是这台服务器。'
-      info "请在自己电脑另开终端执行：ssh -N -L $port:127.0.0.1:$port $USER@$server_name"
-      info "然后在自己电脑打开：http://127.0.0.1:$port/"
     fi
   elif [[ "$host" == 0.0.0.0 || "$host" == :: ]]; then
     warn 'WebUI 已监听所有网络接口，请确认防火墙和访问权限，并避免暴露到不可信网络。'
