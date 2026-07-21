@@ -28,6 +28,7 @@ readonly CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/llamafactory-scripts/con
 readonly STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/llamafactory"
 readonly PID_FILE="$STATE_DIR/webui.pid"
 readonly LOG_FILE="$STATE_DIR/webui.log"
+readonly ENDPOINT_FILE="$STATE_DIR/webui.endpoint"
 
 INSTALL_MODE=''
 SOURCE_DIR=''
@@ -39,7 +40,7 @@ usage() {
 LlamaFactory WebUI 管理命令
 
 用法：
-  llamafactory-webui start [--gpus all|none|0,1] [-- WebUI参数...]
+  llamafactory-webui start [--gpus all|none|0,1] [--host 地址] [--port 端口] [-- WebUI参数...]
   llamafactory-webui stop
   llamafactory-webui status
   llamafactory-webui logs [-f]
@@ -67,7 +68,7 @@ show_help() {
       ;;
     start)
       cat <<'EOF'
-用法：llamafactory-webui start [--gpus GPU] [-- WebUI参数...]
+用法：llamafactory-webui start [--gpus GPU] [--host 地址] [--port 端口] [-- WebUI参数...]
 
 后台启动 LlamaFactory WebUI。启动前会自动激活安装时创建的 llamafactory Conda 环境。
 
@@ -76,6 +77,8 @@ show_help() {
   --gpus none      不向 WebUI 暴露 GPU，使用 CPU
   --gpus 0         仅使用 GPU 0
   --gpus 0,1       使用 GPU 0 和 GPU 1
+  --host 地址      WebUI 监听地址（默认 127.0.0.1）
+  --port 端口      WebUI 监听端口（默认 7860）
   -h, --help       显示此帮助
 
 未指定 --gpus 时，交互终端会显示 GPU 型号、驱动、温度、利用率和显存占用并询问；
@@ -85,6 +88,7 @@ show_help() {
   llamafactory-webui start
   llamafactory-webui start --gpus 0,1
   llamafactory-webui start --gpus none
+  llamafactory-webui start --host 0.0.0.0 --port 7860
   llamafactory-webui start --gpus 0 -- --help
 EOF
       ;;
@@ -212,14 +216,58 @@ choose_gpus() {
   printf '%s' "$answer"
 }
 
+validate_host() {
+  local host=$1
+  [[ -n "$host" && "$host" != *[[:space:]/]* ]]
+}
+
+validate_port() {
+  local port=$1
+  [[ "$port" =~ ^[0-9]+$ ]] && ((10#$port >= 1 && 10#$port <= 65535))
+}
+
+port_is_listening() {
+  local host=$1 port=$2 probe_host=$1
+  [[ "$host" == 0.0.0.0 || "$host" == :: ]] && probe_host=127.0.0.1
+  bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' _ "$probe_host" "$port" 2>/dev/null
+}
+
+show_access_info() {
+  local host=$1 port=$2 server_name
+  if [[ "$host" == 127.0.0.1 || "$host" == localhost ]]; then
+    info "服务器本机访问地址：http://127.0.0.1:$port/"
+    if [[ -n ${SSH_CONNECTION:-} ]]; then
+      server_name=$(hostname -f 2>/dev/null || hostname)
+      info '当前是 SSH 会话；你自己电脑浏览器中的 127.0.0.1 并不是这台服务器。'
+      info "请在自己电脑另开终端执行：ssh -N -L $port:127.0.0.1:$port $USER@$server_name"
+      info "然后在自己电脑打开：http://127.0.0.1:$port/"
+    fi
+  elif [[ "$host" == 0.0.0.0 || "$host" == :: ]]; then
+    warn 'WebUI 已监听所有网络接口，请确认防火墙和访问权限，并避免暴露到不可信网络。'
+    info "访问地址：http://<服务器IP>:$port/"
+  else
+    info "访问地址：http://$host:$port/"
+  fi
+}
+
 start_webui() {
-  local requested_gpus='' gpu_selection pid start_time
+  local requested_gpus='' host=127.0.0.1 port=7860 gpu_selection pid start_time attempt
   local -a webui_args=()
   while (($#)); do
     case "$1" in
       --gpus)
         (($# >= 2)) || die '--gpus 缺少参数。'
         requested_gpus=$2
+        shift 2
+        ;;
+      --host)
+        (($# >= 2)) || die '--host 缺少参数。'
+        host=$2
+        shift 2
+        ;;
+      --port)
+        (($# >= 2)) || die '--port 缺少参数。'
+        port=$2
         shift 2
         ;;
       --)
@@ -234,12 +282,15 @@ start_webui() {
       *) die "未知参数：$1（WebUI 参数请放在 -- 后）" ;;
     esac
   done
+  validate_host "$host" || die "监听地址无效：$host"
+  validate_port "$port" || die "监听端口无效：$port（应为 1-65535）"
   if pid=$(read_running_pid); then
     die "WebUI 已在运行（PID $pid）。"
   fi
-  rm -f -- "$PID_FILE"
+  rm -f -- "$PID_FILE" "$ENDPOINT_FILE"
   mkdir -p "$STATE_DIR"
   gpu_selection=$(choose_gpus "$requested_gpus")
+  port_is_listening "$host" "$port" && die "端口 $port 已被占用，请停止占用进程或使用 --port 指定其他端口。"
 
   step '启动 LlamaFactory WebUI'
   local conda_base conda_sh
@@ -247,21 +298,37 @@ start_webui() {
   conda_base=$("$CONDA_EXE" info --base)
   conda_sh="$conda_base/etc/profile.d/conda.sh"
   [[ -r "$conda_sh" ]] || die "找不到 Conda 初始化脚本：$conda_sh"
-  nohup bash -c 'source "$1"; conda activate "$2"; cd "$3"; shift 3; exec env "CUDA_VISIBLE_DEVICES=$1" llamafactory-cli webui "${@:2}"' \
-    _ "$conda_sh" "$CONDA_ENV_NAME" "$SOURCE_DIR" "$gpu_selection" "${webui_args[@]}" >>"$LOG_FILE" 2>&1 &
+  nohup bash -c 'source "$1"; conda activate "$2"; cd "$3"; shift 3; exec env "CUDA_VISIBLE_DEVICES=$1" "GRADIO_SERVER_NAME=$2" "GRADIO_SERVER_PORT=$3" llamafactory-cli webui "${@:4}"' \
+    _ "$conda_sh" "$CONDA_ENV_NAME" "$SOURCE_DIR" "$gpu_selection" "$host" "$port" "${webui_args[@]}" >>"$LOG_FILE" 2>&1 &
   pid=$!
-  sleep 2
-  kill -0 "$pid" 2>/dev/null || { error 'WebUI 启动失败，最近日志：'; tail -n 30 "$LOG_FILE" >&2; exit 1; }
+  for attempt in {1..30}; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      error 'WebUI 启动失败，最近日志：'
+      tail -n 50 "$LOG_FILE" >&2
+      exit 1
+    fi
+    port_is_listening "$host" "$port" && break
+    sleep 0.5
+  done
   start_time=$(pid_identity "$pid") || die '无法记录 WebUI 进程状态。'
   printf '%s %s\n' "$pid" "$start_time" >"$PID_FILE"
+  printf '%s %s\n' "$host" "$port" >"$ENDPOINT_FILE"
   success "WebUI 已启动（PID $pid，CUDA_VISIBLE_DEVICES=${gpu_selection:-<CPU>}）。"
+  if port_is_listening "$host" "$port"; then
+    success "WebUI 已监听端口：$port"
+  else
+    warn "进程仍在运行，但等待 15 秒后端口 $port 尚未监听，可能仍在初始化。"
+    warn '请执行 llamafactory-webui logs 查看启动日志。'
+  fi
+  show_access_info "$host" "$port"
+  info "如需在当前终端使用 LlamaFactory CLI，请执行：conda activate $CONDA_ENV_NAME"
   info "日志：$LOG_FILE"
 }
 
 stop_webui() {
   local pid attempt
   if ! pid=$(read_running_pid); then
-    rm -f -- "$PID_FILE"
+    rm -f -- "$PID_FILE" "$ENDPOINT_FILE"
     warn 'WebUI 未运行。'
     return
   fi
@@ -275,14 +342,23 @@ stop_webui() {
     warn '进程未在 10 秒内退出，发送 KILL 信号。'
     kill -KILL "$pid"
   fi
-  rm -f -- "$PID_FILE"
+  rm -f -- "$PID_FILE" "$ENDPOINT_FILE"
   success 'WebUI 已停止。'
 }
 
 status_webui() {
-  local pid
+  local pid host port
   if pid=$(read_running_pid); then
     success "WebUI 正在运行（PID $pid）。"
+    if [[ -r "$ENDPOINT_FILE" ]] && read -r host port <"$ENDPOINT_FILE"; then
+      if port_is_listening "$host" "$port"; then
+        success "端口 $port 正在监听。"
+      else
+        warn "进程存在，但端口 $port 尚未监听。"
+      fi
+      show_access_info "$host" "$port"
+    fi
+    info "日志：$LOG_FILE"
   else
     warn 'WebUI 未运行。'
     return 1

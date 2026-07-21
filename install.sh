@@ -355,6 +355,7 @@ main() {
     *) warn "$BIN_DIR 尚未加入 PATH。请将下面一行加入 ~/.bashrc 后重新登录："
        printf '  export PATH="$HOME/.local/bin:$PATH"\n' ;;
   esac
+  info "激活 Conda 环境：conda activate $CONDA_ENV_NAME"
   info '启动：llamafactory-webui start（或 llamafactory-webui-start）'
   info '停止：llamafactory-webui stop（或 llamafactory-webui-stop）'
 }

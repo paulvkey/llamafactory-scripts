@@ -105,6 +105,15 @@ chmod +x install-shared-cmd.sh
 
 ## WebUI 管理命令
 
+需要在当前终端直接使用 `llamafactory-cli`、Python 或 pip 时，执行：
+
+```bash
+conda activate llamafactory
+```
+
+`llamafactory-webui-start` 会自动在后台进程中激活该环境，但不会改变当前终端的
+Conda 环境；启动成功后也会显示上面的手动激活提示。
+
 ```bash
 # 交互展示并选择 GPU
 llamafactory-webui start
@@ -113,6 +122,9 @@ llamafactory-webui start
 llamafactory-webui start --gpus 0,1
 llamafactory-webui start --gpus all
 llamafactory-webui start --gpus none
+
+# 默认仅监听服务器本机的 127.0.0.1:7860；也可以指定地址和端口
+llamafactory-webui start --host 127.0.0.1 --port 7860
 
 llamafactory-webui status
 llamafactory-webui logs
@@ -136,6 +148,26 @@ llamafactory-webui-stop
 
 ```bash
 llamafactory-webui start --gpus 0 -- --help
+```
+
+如果通过 SSH 登录 Ubuntu 服务器，浏览器中打开的 `127.0.0.1` 默认指向浏览器所在的
+电脑，而不是服务器。推荐在自己电脑另开终端建立 SSH 隧道：
+
+```bash
+ssh -N -L 7860:127.0.0.1:7860 用户名@服务器地址
+```
+
+保持该命令运行，再在自己电脑打开 <http://127.0.0.1:7860/>。若确实需要从局域网
+直接访问，可使用 `llamafactory-webui start --host 0.0.0.0 --port 7860`，然后打开
+`http://服务器IP:7860/`；这种方式会把 WebUI 暴露到服务器网络接口，应同时配置好
+防火墙和访问控制，避免暴露到不可信网络。
+
+如果页面仍无法打开，先检查进程、监听端口和日志：
+
+```bash
+llamafactory-webui status
+llamafactory-webui logs
+curl -I http://127.0.0.1:7860/
 ```
 
 ## 默认路径
