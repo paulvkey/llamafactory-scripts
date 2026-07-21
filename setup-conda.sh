@@ -102,7 +102,11 @@ main() {
   "$conda_exe" config --show pkgs_dirs
 
   success 'Conda 用户目录配置完成。'
-  info '执行 source ~/.bashrc 或重新登录后，Conda 初始化配置生效。'
+  if [[ ${LLAMAFACTORY_INSTALLER_CALL:-0} == 1 ]]; then
+    info 'install.sh 将在当前安装进程中自动加载 Conda，无需手动执行 source。'
+  else
+    info '执行 source ~/.bashrc 或重新登录后，当前终端可以直接使用 conda 命令。'
+  fi
 }
 
 main "$@"

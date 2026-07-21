@@ -6,9 +6,9 @@
 
 ## 功能
 
-- 可选创建名为 `llamafactory`、Python 3.11 的 Conda 环境；未安装 Conda 时可选择
+- 创建名为 `llamafactory`、Python 3.11 的 Conda 环境；未安装 Conda 时可选择
   将 Miniconda 安装到 `~/.local/miniconda3`。
-- 不使用 Conda 时创建独立 venv，依赖不会装入系统 Python。
+- 如果不选择使用 Conda，脚本会提示后直接退出，不创建 venv，也不继续安装。
 - 从官方仓库安装 LlamaFactory 及 metrics 依赖。
 - 启动 WebUI 前展示 NVIDIA GPU 型号、驱动、温度、利用率和显存占用，并通过
   `CUDA_VISIBLE_DEVICES` 选择设备。
@@ -30,11 +30,16 @@ chmod +x install.sh uninstall.sh
 立即执行 `setup-conda.sh`；配置已经存在时则默认跳过。若 Conda 位于自定义目录，
 安装脚本也会尝试从 `~/.bashrc` 的初始化块中识别其路径。
 
+如果安装过程中执行了 `setup-conda.sh`，`install.sh` 会在当前安装进程中主动加载
+`conda.sh`：先激活 base 创建环境，再激活 `llamafactory` 安装全部依赖，因此无需
+中断安装去手动执行 `source ~/.bashrc`。单独运行 `setup-conda.sh` 时，新配置仍需
+执行 `source ~/.bashrc` 或重新登录后才会影响当前终端。
+
 ```bash
 ./uninstall.sh
 ```
 
-卸载会先确认，再删除脚本管理的用户级源码、venv、命令、配置和日志。若使用
+卸载会先确认，再删除脚本管理的用户级源码、命令、配置和日志。若使用
 Conda，会单独询问是否删除 `llamafactory` 环境；Miniconda 本身始终保留。
 
 ## 配置共享存储中的 Conda 目录
@@ -116,7 +121,7 @@ llamafactory-webui start --gpus 0 -- --help
 
 | 内容                 | 路径                                    |
 | -------------------- | --------------------------------------- |
-| 源码与 venv/运行脚本 | `~/.local/share/llamafactory`           |
+| 源码与运行脚本      | `~/.local/share/llamafactory`           |
 | 管理命令             | `~/.local/bin`                          |
 | 安装配置             | `~/.config/llamafactory-scripts/config` |
 | PID 与日志           | `~/.local/state/llamafactory`           |

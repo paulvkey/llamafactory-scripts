@@ -20,7 +20,6 @@ readonly LOG_FILE="$STATE_DIR/webui.log"
 
 INSTALL_MODE=''
 SOURCE_DIR=''
-ENV_PATH=''
 CONDA_ENV_NAME='llamafactory'
 CONDA_EXE=''
 
@@ -43,13 +42,12 @@ load_config() {
     case "$key" in
       INSTALL_MODE) INSTALL_MODE=$value ;;
       SOURCE_DIR) SOURCE_DIR=$value ;;
-      ENV_PATH) ENV_PATH=$value ;;
       CONDA_ENV_NAME) CONDA_ENV_NAME=$value ;;
       CONDA_EXE) CONDA_EXE=$value ;;
     esac
   done <"$CONFIG_FILE"
   [[ -d "$SOURCE_DIR" ]] || die "LlamaFactory 源码目录不存在：$SOURCE_DIR"
-  [[ "$INSTALL_MODE" == conda || "$INSTALL_MODE" == venv ]] || die '安装配置中的 INSTALL_MODE 无效。'
+  [[ "$INSTALL_MODE" == conda ]] || die '安装配置无效：WebUI 启动器仅支持 Conda 安装模式。'
 }
 
 pid_identity() {
@@ -158,19 +156,13 @@ start_webui() {
   gpu_selection=$(choose_gpus "$requested_gpus")
 
   step '启动 LlamaFactory WebUI'
-  if [[ "$INSTALL_MODE" == conda ]]; then
-    local conda_base conda_sh
-    [[ -x "$CONDA_EXE" ]] || die "Conda 不可执行：$CONDA_EXE"
-    conda_base=$("$CONDA_EXE" info --base)
-    conda_sh="$conda_base/etc/profile.d/conda.sh"
-    [[ -r "$conda_sh" ]] || die "找不到 Conda 初始化脚本：$conda_sh"
-    nohup bash -c 'source "$1"; conda activate "$2"; cd "$3"; shift 3; exec env "CUDA_VISIBLE_DEVICES=$1" llamafactory-cli webui "${@:2}"' \
-      _ "$conda_sh" "$CONDA_ENV_NAME" "$SOURCE_DIR" "$gpu_selection" "${webui_args[@]}" >>"$LOG_FILE" 2>&1 &
-  else
-    [[ -x "$ENV_PATH/bin/llamafactory-cli" ]] || die "venv 中找不到 llamafactory-cli：$ENV_PATH"
-    nohup bash -c 'source "$1/bin/activate"; cd "$2"; shift 2; exec env "CUDA_VISIBLE_DEVICES=$1" llamafactory-cli webui "${@:2}"' \
-      _ "$ENV_PATH" "$SOURCE_DIR" "$gpu_selection" "${webui_args[@]}" >>"$LOG_FILE" 2>&1 &
-  fi
+  local conda_base conda_sh
+  [[ -x "$CONDA_EXE" ]] || die "Conda 不可执行：$CONDA_EXE"
+  conda_base=$("$CONDA_EXE" info --base)
+  conda_sh="$conda_base/etc/profile.d/conda.sh"
+  [[ -r "$conda_sh" ]] || die "找不到 Conda 初始化脚本：$conda_sh"
+  nohup bash -c 'source "$1"; conda activate "$2"; cd "$3"; shift 3; exec env "CUDA_VISIBLE_DEVICES=$1" llamafactory-cli webui "${@:2}"' \
+    _ "$conda_sh" "$CONDA_ENV_NAME" "$SOURCE_DIR" "$gpu_selection" "${webui_args[@]}" >>"$LOG_FILE" 2>&1 &
   pid=$!
   sleep 2
   kill -0 "$pid" 2>/dev/null || { error 'WebUI 启动失败，最近日志：'; tail -n 30 "$LOG_FILE" >&2; exit 1; }

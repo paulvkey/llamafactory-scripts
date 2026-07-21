@@ -50,7 +50,7 @@ main() {
   load_config
 
   step '卸载 LlamaFactory 用户级安装'
-  confirm '停止 WebUI 并删除命令、源码、venv、配置和运行日志？' N || { warn '已取消卸载。'; return; }
+  confirm '停止 WebUI 并删除命令、源码、配置和运行日志？' N || { warn '已取消卸载。'; return; }
 
   if [[ -x "$INSTALL_ROOT/runtime/llamafactory-webui" ]]; then
     "$INSTALL_ROOT/runtime/llamafactory-webui" stop || true
@@ -62,7 +62,7 @@ main() {
   remove_managed_tree "$INSTALL_ROOT"
   remove_managed_tree "$CONFIG_DIR"
   remove_managed_tree "$STATE_DIR"
-  success '命令、源码、venv、配置和运行日志已删除。'
+  success '命令、源码、配置和运行日志已删除。'
 
   if [[ "$INSTALL_MODE" == conda && -n "$CONDA_EXE" && -x "$CONDA_EXE" ]]; then
     if confirm "是否同时删除 Conda 环境 $CONDA_ENV_NAME？" N; then
