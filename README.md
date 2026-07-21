@@ -35,6 +35,15 @@ chmod +x install.sh uninstall.sh
 中断安装去手动执行 `source ~/.bashrc`。单独运行 `setup-conda.sh` 时，新配置仍需
 执行 `source ~/.bashrc` 或重新登录后才会影响当前终端。
 
+创建 `llamafactory` 环境时默认使用 `conda-forge`，并通过 `--override-channels`
+忽略 Anaconda defaults，避免在非交互安装中触发 `CondaToSNonInteractiveError`。
+如果选择使用 defaults，脚本会要求管理员自行查看并处理适用的 Anaconda 服务条款，
+不会自动代替用户接受法律条款。
+
+安装 LlamaFactory 前，脚本会验证 `CONDA_DEFAULT_ENV`、`CONDA_PREFIX`、`python`、
+`pip`、Python 的 `sys.prefix` 以及 pip 模块路径，确保它们全部属于 `llamafactory`
+环境。依赖安装同时设置 `PYTHONNOUSERSITE=1`，防止误用用户目录中的 Python 包。
+
 ```bash
 ./uninstall.sh
 ```

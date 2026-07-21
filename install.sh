@@ -132,6 +132,64 @@ python_is_311() {
   "$1" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 11) else 1)' >/dev/null 2>&1
 }
 
+verify_active_conda_toolchain() {
+  local env_name=$1 active_python active_pip
+
+  [[ ${CONDA_DEFAULT_ENV:-} == "$env_name" ]] \
+    || die "当前 Conda 环境不是 $env_name：${CONDA_DEFAULT_ENV:-<未激活>}"
+  [[ -n ${CONDA_PREFIX:-} && -d "$CONDA_PREFIX" ]] \
+    || die 'CONDA_PREFIX 未设置或目录不存在。'
+
+  hash -r
+  active_python=$(command -v python 2>/dev/null || true)
+  active_pip=$(command -v pip 2>/dev/null || true)
+  [[ "$active_python" == "$CONDA_PREFIX/bin/python" ]] \
+    || die "python 未指向当前 Conda 环境：${active_python:-<未找到>}"
+  [[ "$active_pip" == "$CONDA_PREFIX/bin/pip" ]] \
+    || die "pip 未指向当前 Conda 环境：${active_pip:-<未找到>}"
+
+  PYTHONNOUSERSITE=1 "$active_python" - <<'PY'
+import os
+import sys
+
+import pip
+
+prefix = os.path.realpath(os.environ["CONDA_PREFIX"])
+python_prefix = os.path.realpath(sys.prefix)
+pip_path = os.path.realpath(pip.__file__)
+
+if python_prefix != prefix:
+    raise SystemExit(f"Python sys.prefix 不属于当前 Conda 环境：{python_prefix}")
+if os.path.commonpath((prefix, pip_path)) != prefix:
+    raise SystemExit(f"pip 模块不属于当前 Conda 环境：{pip_path}")
+PY
+
+  success "Python：$active_python"
+  success "pip：$active_pip"
+  "$active_python" --version
+  PYTHONNOUSERSITE=1 "$active_python" -m pip --version
+}
+
+create_llamafactory_conda_env() {
+  local conda_exe=$1
+
+  info 'Anaconda defaults channels 可能要求接受服务条款；conda-forge 不使用这些 defaults channels。'
+  if confirm '是否仅使用 conda-forge 创建 llamafactory 环境？' Y; then
+    "$conda_exe" create -y -n "$CONDA_ENV_NAME" \
+      --override-channels --channel conda-forge \
+      python=3.11 pip
+    return
+  fi
+
+  warn '选择 defaults 前，必须由你本人查看并接受适用的 Anaconda 服务条款。'
+  info '查看条款状态：conda tos'
+  info '查看条款链接：conda tos view'
+  if ! confirm '是否确认你已自行处理相关条款，并继续使用当前默认 channels？' N; then
+    die '已停止创建环境；可重新运行并选择 conda-forge。'
+  fi
+  "$conda_exe" create -y -n "$CONDA_ENV_NAME" python=3.11 pip
+}
+
 prepare_source() {
   if [[ -d "$SOURCE_DIR/.git" ]]; then
     info '检测到已有 LlamaFactory 源码，尝试快进更新。'
@@ -203,18 +261,20 @@ main() {
   if "$conda_exe" env list | awk -v name="$CONDA_ENV_NAME" '$1 == name { found=1 } END { exit !found }'; then
     info "Conda 环境 $CONDA_ENV_NAME 已存在，将继续使用。"
   else
-    "$conda_exe" create -y -n "$CONDA_ENV_NAME" python=3.11 pip
+    create_llamafactory_conda_env "$conda_exe"
   fi
   activate_conda_environment "$conda_exe" "$CONDA_ENV_NAME"
   env_path=$CONDA_PREFIX
-  python_bin="$env_path/bin/python"
+  step '验证 Conda Python 与 pip'
+  verify_active_conda_toolchain "$CONDA_ENV_NAME"
+  python_bin=$(command -v python)
   python_is_311 "$python_bin" || die "现有 $CONDA_ENV_NAME 环境不是 Python 3.11，请先移除或改名。"
 
   step '获取并安装 LlamaFactory'
   prepare_source
-  "$python_bin" -m pip install --upgrade pip
-  "$python_bin" -m pip install -e "$SOURCE_DIR"
-  "$python_bin" -m pip install -r "$SOURCE_DIR/requirements/metrics.txt"
+  PYTHONNOUSERSITE=1 "$python_bin" -m pip install --upgrade pip
+  PYTHONNOUSERSITE=1 "$python_bin" -m pip install -e "$SOURCE_DIR"
+  PYTHONNOUSERSITE=1 "$python_bin" -m pip install -r "$SOURCE_DIR/requirements/metrics.txt"
   "$env_path/bin/llamafactory-cli" version
 
   step '安装用户命令'
