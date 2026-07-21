@@ -133,12 +133,15 @@ python_is_311() {
 }
 
 verify_active_conda_toolchain() {
-  local env_name=$1 active_python active_pip
+  local env_name=$1 active_python active_pip active_env
 
-  [[ ${CONDA_DEFAULT_ENV:-} == "$env_name" ]] \
-    || die "当前 Conda 环境不是 $env_name：${CONDA_DEFAULT_ENV:-<未激活>}"
   [[ -n ${CONDA_PREFIX:-} && -d "$CONDA_PREFIX" ]] \
     || die 'CONDA_PREFIX 未设置或目录不存在。'
+  active_env=${CONDA_DEFAULT_ENV:-}
+  [[ "$active_env" == "$env_name" || "$active_env" == "$CONDA_PREFIX" ]] \
+    || die "当前 Conda 环境不是 $env_name：${active_env:-<未激活>}"
+  [[ $(basename -- "$CONDA_PREFIX") == "$env_name" ]] \
+    || die "CONDA_PREFIX 未指向 $env_name 环境：$CONDA_PREFIX"
 
   hash -r
   active_python=$(command -v python 2>/dev/null || true)
