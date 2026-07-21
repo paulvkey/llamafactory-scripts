@@ -43,6 +43,8 @@ chmod +x install.sh uninstall.sh
 安装 LlamaFactory 前，脚本会验证 `CONDA_DEFAULT_ENV`、`CONDA_PREFIX`、`python`、
 `pip`、Python 的 `sys.prefix` 以及 pip 模块路径，确保它们全部属于 `llamafactory`
 环境。依赖安装同时设置 `PYTHONNOUSERSITE=1`，防止误用用户目录中的 Python 包。
+验证通过后，LlamaFactory 本体按照官方方式执行 `pip install -e .` 和
+`pip install -r requirements/metrics.txt`，不额外升级 pip。
 
 ```bash
 ./uninstall.sh

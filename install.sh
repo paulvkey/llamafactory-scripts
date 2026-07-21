@@ -238,7 +238,7 @@ install_commands() {
 }
 
 main() {
-  local conda_exe='' python_bin env_path
+  local conda_exe='' python_bin
 
   step '检查 Ubuntu 用户环境'
   require_ubuntu
@@ -267,7 +267,6 @@ main() {
     create_llamafactory_conda_env "$conda_exe"
   fi
   activate_conda_environment "$conda_exe" "$CONDA_ENV_NAME"
-  env_path=$CONDA_PREFIX
   step '验证 Conda Python 与 pip'
   verify_active_conda_toolchain "$CONDA_ENV_NAME"
   python_bin=$(command -v python)
@@ -275,10 +274,12 @@ main() {
 
   step '获取并安装 LlamaFactory'
   prepare_source
-  PYTHONNOUSERSITE=1 "$python_bin" -m pip install --upgrade pip
-  PYTHONNOUSERSITE=1 "$python_bin" -m pip install -e "$SOURCE_DIR"
-  PYTHONNOUSERSITE=1 "$python_bin" -m pip install -r "$SOURCE_DIR/requirements/metrics.txt"
-  "$env_path/bin/llamafactory-cli" version
+  (
+    cd "$SOURCE_DIR"
+    PYTHONNOUSERSITE=1 pip install -e .
+    PYTHONNOUSERSITE=1 pip install -r requirements/metrics.txt
+    llamafactory-cli version
+  )
 
   step '安装用户命令'
   write_config conda "$conda_exe"
